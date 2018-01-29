@@ -21,6 +21,7 @@ def init_workspace(options)
     else
         import_template(@makefile_lib_template_path, "Makefile", {:name => options[:init_name], :src => "*"})
     end
+    import_template(@header_template_path, "inc/#{options[:init_name]}.h", {:name => options[:init_name].upcase})
 end
 
 
@@ -31,11 +32,15 @@ template_path = "#{path}/template"
 makefile_bin_name = "/Makefile_bin.template"
 makefile_lib_name = "/Makefile_lib.template"
 @makefile_bin_template_path = template_path + makefile_bin_name
-@makefile_lib_template_path = template_path + makefile_bin_name
+@makefile_lib_template_path = template_path + makefile_lib_name
 
 # main path
 main_name = "/main.c.template"
 @main_template_path = template_path + main_name
+
+# header path
+header_name = "/header.h.template"
+@header_template_path = template_path + header_name
 
 
 options = {}

@@ -18,7 +18,7 @@ INCDIR=./inc/
 
 all: $(NAME)
 
-$(NAME): $(OBJ)
+$(NAME): $(OBJDIR) $(OBJ)
 	@ar rc $@ $(OBJ)
 	@(echo "[ \033[35m$@\033[00m ]")
 

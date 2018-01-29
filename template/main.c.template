@@ -1,6 +1,8 @@
 #include <unistd.h>
 #include <string.h>
 
+//#include "%{name}.h"
+
 int main(void) {
     char *hello = "%{name}: Hello, find me in ./src/main.c !\n";
     write(1, hello, strlen(hello));
