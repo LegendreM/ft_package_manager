@@ -46,11 +46,11 @@ def freeze_workspace()
     src = Dir["./src/*.c"]
     src = src.map { |file| File.basename(file, ".c") }.join(" ")
     p conf
-    unless conf["is_lib"]
-        import_template(@makefile_bin_template_path, "Makefile", {:name => conf["name"], :src => src})
+    if conf["is_lib"]
+        import_template(@makefile_lib_template_path, "Makefile", {:name => conf["name"], :src => src})
     else
         libs = get_libs_path(conf)
-        import_template(@makefile_lib_template_path, "Makefile", {:name => conf["name"], :src => src, :libs => libs[:path].join(" "), :cc_libs => libs[:cc_path].join(" ")})
+        import_template(@makefile_bin_template_path, "Makefile", {:name => conf["name"], :src => src, :libs => libs[:path].join(" "), :cc_libs => libs[:cc_path].join(" ")})
     end
 end
 
