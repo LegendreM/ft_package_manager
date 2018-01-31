@@ -7,6 +7,10 @@ CFLAG=
 #CFLAG+= -fsanitize=address
 SRCNAME=%{src}
 
+LIBS=%{libs}
+
+CC_LIBS=%{cc_libs}
+
 OBJDIR=./obj/
 SRCDIR=./src/
 
@@ -19,7 +23,8 @@ INCDIR=./inc/
 all: $(NAME)
 
 $(NAME): $(OBJDIR) $(OBJ)
-	@$(CC) -o $@ $(OBJ)
+	@$(CC_LIBS)
+	@$(CC) -o $@ $(OBJ) $(LIBS)
 	@(echo "[ \033[35m$@\033[00m ]")
 
 $(OBJDIR)%%.o: $(SRCDIR)%%.c
