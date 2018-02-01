@@ -22,13 +22,14 @@ def write_toml(hash)
 end
 
 def get_libs_path(conf)
-    lib = { :path => [""], :cc_path => [""] }
+    lib = { :path => [""], :cc_path => [""], :headers_path => [""] }
     if conf["dependencies"] && !conf["is_lib"]
         conf["dependencies"].each do |dependency|
             begin
                 dep_conf = TOML.load_file("./#{@dependencies_directory}/#{dependency[0]}/config.toml")
                 lib[:cc_path] << "make -C ./#{@dependencies_directory}/#{dependency[0]}/;"
                 lib[:path] << "./#{@dependencies_directory}/#{dependency[0]}/#{dep_conf["name"]}.a"
+                lib[:headers_path] << "-I ./#{@dependencies_directory}/#{dependency[0]}/inc/"
             rescue
                 print "warning: #{dependency[0]} is not installed, use --install or remove it from config.toml\n"
             end
@@ -52,7 +53,7 @@ def freeze_workspace()
         import_template(@makefile_lib_template_path, "Makefile", {:name => conf["name"], :src => src})
     else
         libs = get_libs_path(conf)
-        import_template(@makefile_bin_template_path, "Makefile", {:name => conf["name"], :src => src, :libs => libs[:path].join(" "), :cc_libs => libs[:cc_path].join(" ")})
+        import_template(@makefile_bin_template_path, "Makefile", {:name => conf["name"], :src => src, :libs => libs[:path].join(" "), :cc_libs => libs[:cc_path].join(" "), :headers_path => libs[:headers_path].join(" ")})
     end
 end
 
@@ -87,7 +88,7 @@ def install_dependencies()
         end
         libs = get_libs_path(conf)
         p libs
-        import_template(@makefile_bin_template_path, "Makefile", {:name => conf["name"], :src => "*", :libs => libs[:path].join(" "), :cc_libs => libs[:cc_path].join(" ")})
+        import_template(@makefile_bin_template_path, "Makefile", {:name => conf["name"], :src => "*", :libs => libs[:path].join(" "), :cc_libs => libs[:cc_path].join(" "), :headers_path => libs[:headers_path].join(" ")})
     end
 end
 
@@ -100,14 +101,12 @@ def upgrade_dependencies()
         return
     end
 
-    p "gaspard"
     if conf["dependencies"] && !conf["is_lib"]
         conf["dependencies"].each do |dependency|
             begin
                 g = Git.open("./#{@dependencies_directory}/#{dependency[0]}")
                 g.pull
                 `make -C "./#{@dependencies_directory}/#{dependency[0]}" fclean`
-                p "coucou"
             rescue
                 print "warning: #{dependency[0]} is not a git repository\n"
             end
@@ -119,7 +118,7 @@ def init_workspace(options)
     FileUtils::mkdir_p './src'
     FileUtils::mkdir_p './inc'
     unless options[:is_lib]
-        import_template(@makefile_bin_template_path, "Makefile", {:name => options[:init_name], :src => "*", :libs => "", :cc_libs => ""})
+        import_template(@makefile_bin_template_path, "Makefile", {:name => options[:init_name], :src => "*", :libs => "", :cc_libs => "", :headers_path => ""})
         import_template(@main_template_path, "src/main.c", {:name => options[:init_name]})
     else
         import_template(@makefile_lib_template_path, "Makefile", {:name => options[:init_name], :src => "*"})
@@ -186,8 +185,6 @@ end
 unless is_params_valid? options
     exit 1
 end
-
-puts options
 
 unless !options[:init_name] || options[:init_name].empty?
     init_workspace(options)
