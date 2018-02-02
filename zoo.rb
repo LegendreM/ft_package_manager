@@ -4,6 +4,24 @@ require 'fileutils'
 require 'optparse'
 require 'toml'
 require 'git'
+require 'colorize'
+
+def warn_msg(msg)
+    $stderr.puts "warning: #{msg}".yellow
+end
+
+def error_msg(msg)
+    $stderr.puts "error: #{msg}".red
+end
+
+def info_msg(msg)
+    puts "#{msg}"
+end
+
+def highlighted_msg(prefix, msg, suffix)
+    msg = "#{msg}".green
+    puts "#{prefix}#{msg}#{suffix}" 
+end
 
 def import_template(template_path, dest_path, template_params)
     file = File.open(template_path, "r")
@@ -31,7 +49,7 @@ def get_libs_path(conf)
                 lib[:path] << "./#{@dependencies_directory}/#{dependency[0]}/#{dep_conf["name"]}.a"
                 lib[:headers_path] << "-I ./#{@dependencies_directory}/#{dependency[0]}/inc/"
             rescue
-                print "warning: #{dependency[0]} is not installed, use --install or remove it from config.toml\n"
+                warn_msg("#{dependency[0]} is not installed, use --install or remove it from config.toml")
             end
         end
     end
@@ -42,13 +60,12 @@ def freeze_workspace()
     begin
         conf = TOML.load_file("config.toml")
     rescue
-        print "error: no config.toml found\n"
+        error_msg("no config.toml found")
         return
     end
 
     src = Dir["./src/*.c"]
     src = src.map { |file| File.basename(file, ".c") }.join(" ")
-    p conf
     if conf["is_lib"]
         import_template(@makefile_lib_template_path, "Makefile", {:name => conf["name"], :src => src})
     else
@@ -61,7 +78,7 @@ def install_dependencies()
     begin
         conf = TOML.load_file("config.toml")
     rescue
-        print "error: no config.toml found\n"
+        error_msg("no config.toml found")
         return
     end
 
@@ -73,21 +90,20 @@ def install_dependencies()
                 begin
                     dep_conf = TOML.load_file("./#{@dependencies_directory}/#{dependency[0]}/config.toml")
                     if dep_conf["is_lib"]
-                        print "#{dependency[0]} from #{dependency[1]} installed\n"
+                        highlighted_msg("", "#{dependency[0]}", " from #{dependency[1]} installed")
                     else
                         FileUtils.rm_r("./#{@dependencies_directory}/#{dependency[0]}")
-                        print "warning: #{dependency[0]} is not a lib, not installed\n"
+                        warn_msg("#{dependency[0]} is not a lib, not installed")
                     end
                 rescue
                     FileUtils.rm_r("./#{@dependencies_directory}/#{dependency[0]}")
-                    print "warning: #{dependency[0]} has no config.toml, not installed\n"
+                    warn_msg("#{dependency[0]} has no config.toml, not installed")
                 end
             rescue
                 print "#{dependency[0]}\n"
             end
         end
         libs = get_libs_path(conf)
-        p libs
         import_template(@makefile_bin_template_path, "Makefile", {:name => conf["name"], :src => "*", :libs => libs[:path].join(" "), :cc_libs => libs[:cc_path].join(" "), :headers_path => libs[:headers_path].join(" ")})
     end
 end
@@ -97,7 +113,7 @@ def upgrade_dependencies()
     begin
         conf = TOML.load_file("config.toml")
     rescue
-        print "error: no config.toml found\n"
+        error_msg("no config.toml found")
         return
     end
 
@@ -108,7 +124,7 @@ def upgrade_dependencies()
                 g.pull
                 `make -C "./#{@dependencies_directory}/#{dependency[0]}" fclean`
             rescue
-                print "warning: #{dependency[0]} is not a git repository\n"
+                warn_msg("#{dependency[0]} is not a git repository")
             end
         end
     end
@@ -136,22 +152,27 @@ end
 def parse()
     options = {}
     OptionParser.new do |opt|
-        opt.on('-i', '--init NAME') { |o| options[:init_name] = o }
-        opt.on('--freeze') { |o| options[:freeze] = o }
-        opt.on('-l', '--lib') { |o| options[:is_lib] = o }
-        opt.on('--install') { |o| options[:install] = o }
-        opt.on('--upgrade') { |o| options[:upgrade] = o }
+        opt.banner = "Usage: #{@bin_name} [options]"
+        opt.on('--init=NAME', "Init a new project") { |o| options[:init_name] = o }
+        opt.on('--lib', "Init project as lib, used with --init=NAME") { |o| options[:is_lib] = o }
+        opt.on('--freeze', "Replace wildcards by project file name") { |o| options[:freeze] = o }
+        opt.on('--install', "Install dependencies") { |o| options[:install] = o }
+        opt.on('--upgrade', "Upgrade dependencies") { |o| options[:upgrade] = o }
+        opt.on("-h", "--help", "Show help") do
+            puts opt
+            options = {}
+        end
     end.parse!
 
     return options
 end
 
 def is_params_valid?(options)
-    if options[:init_name]&& options[:freeze]
-        $stderr.puts "--freeze and --init are not compatible"
+    if options[:init_name]&& options[:upgrade]
+        error_msg("--upgrade and --init are not compatible")
         false
-    elsif options[:is_lib] && options[:freeze]
-        $stderr.puts "--freeze and --lib are not compatible"
+    elsif options[:is_lib] && options[:upgrade]
+        error_msg("--upgrade and --lib are not compatible")
         false
     end
     true
@@ -159,6 +180,8 @@ end
 
 path = ENV["PM_PATH"]
 template_path = "#{path}/template"
+
+@bin_name = "zoo"
 
 # Makefiles Path
 makefile_bin_name = "/Makefile_bin.template"
@@ -179,7 +202,7 @@ header_name = "/header.h.template"
 begin
     options = parse()
 rescue Exception => e
-    print "#{e.message}\n"
+    error_msg("#{e.message}")
     exit 1
 end
 unless is_params_valid? options
@@ -187,11 +210,11 @@ unless is_params_valid? options
 end
 
 unless !options[:init_name] || options[:init_name].empty?
-    init_workspace(options)
-end
-
-unless !options[:freeze]
-    freeze_workspace()
+    unless File.exist? File.expand_path "./config.toml"
+        init_workspace(options)
+    else
+        error_msg("a config.toml file exist in this directory, remove it before create a new project")
+    end
 end
 
 unless !options[:install]
@@ -200,4 +223,8 @@ end
 
 unless !options[:upgrade]
     upgrade_dependencies()
+end
+
+unless !options[:freeze]
+    freeze_workspace()
 end
