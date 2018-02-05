@@ -39,19 +39,27 @@ def write_toml(hash)
     file.close
 end
 
-def get_libs_path(conf)
+def fill_dependencies_path(conf, lib)
+    conf["dependencies"].each do |dependency|
+        begin
+            dep_conf = TOML.load_file("./#{@dependencies_directory}/#{dependency[0]}/config.toml")
+            lib[:cc_path] << "make -C ./#{@dependencies_directory}/#{dependency[0]}/;"
+            lib[:path] << "./#{@dependencies_directory}/#{dependency[0]}/#{dep_conf["name"]}.a"
+            lib[:headers_path] << "-I ./#{@dependencies_directory}/#{dependency[0]}/inc/"
+            if dep_conf["dependencies"]
+                lib = fill_dependencies_path(dep_conf, lib)
+            end
+        rescue Exception => e
+            warn_msg("#{dependency[0]} is not installed, use --install or remove it from config.toml\n#{e}")
+        end
+    end
+    return lib
+end
+
+def get_dependencies_path(conf)
     lib = { :path => [""], :cc_path => [""], :headers_path => [""] }
     if conf["dependencies"] && !conf["is_lib"]
-        conf["dependencies"].each do |dependency|
-            begin
-                dep_conf = TOML.load_file("./#{@dependencies_directory}/#{dependency[0]}/config.toml")
-                lib[:cc_path] << "make -C ./#{@dependencies_directory}/#{dependency[0]}/;"
-                lib[:path] << "./#{@dependencies_directory}/#{dependency[0]}/#{dep_conf["name"]}.a"
-                lib[:headers_path] << "-I ./#{@dependencies_directory}/#{dependency[0]}/inc/"
-            rescue
-                warn_msg("#{dependency[0]} is not installed, use --install or remove it from config.toml")
-            end
-        end
+        lib = fill_dependencies_path(conf, lib)
     end
     return lib
 end
@@ -69,8 +77,47 @@ def freeze_workspace()
     if conf["is_lib"]
         import_template(@makefile_lib_template_path, "Makefile", {:name => conf["name"], :src => src})
     else
-        libs = get_libs_path(conf)
+        libs = get_dependencies_path(conf)
         import_template(@makefile_bin_template_path, "Makefile", {:name => conf["name"], :src => src, :libs => libs[:path].join(" "), :cc_libs => libs[:cc_path].join(" "), :headers_path => libs[:headers_path].join(" ")})
+    end
+end
+
+def install_dependency(name, url)
+    begin
+        Git.clone(url, "./#{@dependencies_directory}/#{name}")
+        begin
+            dep_conf = TOML.load_file("./#{@dependencies_directory}/#{name}/config.toml")
+            if dep_conf["is_lib"]
+                highlighted_msg("", "#{name}", " from #{url} installed")
+            else
+                FileUtils.rm_r("./#{@dependencies_directory}/#{name}")
+                warn_msg("#{name} is not a lib, not installed")
+            end
+        rescue
+            FileUtils.rm_r("./#{@dependencies_directory}/#{name}")
+            warn_msg("#{name} has no config.toml, not installed")
+        end
+    rescue
+        print "#{name}\n"
+    end
+end
+
+def install_sub_dependendies(name, url)
+    begin
+        conf = TOML.load_file("./#{@dependencies_directory}/#{name}/config.toml")
+    rescue
+        error_msg("#{name} has no config.toml found")
+        return
+    end
+
+    if conf["dependencies"]
+        conf["dependencies"].each do |dependency|
+            install_dependency(dependency[0], dependency[1])
+            install_sub_dependendies(dependency[0], dependency[1])
+            inc = Dir["./#{@dependencies_directory}/#{dependency[0]}/inc/*.h"]
+            inc = inc.map { |x| x.sub("./#{@dependencies_directory}", "../..") }
+            FileUtils.ln_sf(inc, "./#{@dependencies_directory}/#{name}/inc/")
+        end
     end
 end
 
@@ -78,34 +125,46 @@ def install_dependencies()
     begin
         conf = TOML.load_file("config.toml")
     rescue
-        error_msg("no config.toml found")
+        error_msg("#{name} has no config.toml found")
         return
     end
 
     if conf["dependencies"] && !conf["is_lib"]
         FileUtils::mkdir_p "./#{@dependencies_directory}"
         conf["dependencies"].each do |dependency|
-            begin
-                Git.clone(dependency[1], "./#{@dependencies_directory}/#{dependency[0]}")
-                begin
-                    dep_conf = TOML.load_file("./#{@dependencies_directory}/#{dependency[0]}/config.toml")
-                    if dep_conf["is_lib"]
-                        highlighted_msg("", "#{dependency[0]}", " from #{dependency[1]} installed")
-                    else
-                        FileUtils.rm_r("./#{@dependencies_directory}/#{dependency[0]}")
-                        warn_msg("#{dependency[0]} is not a lib, not installed")
-                    end
-                rescue
-                    FileUtils.rm_r("./#{@dependencies_directory}/#{dependency[0]}")
-                    warn_msg("#{dependency[0]} has no config.toml, not installed")
-                end
-            rescue
-                print "#{dependency[0]}\n"
-            end
+            install_dependency(dependency[0], dependency[1])
+            install_sub_dependendies(dependency[0], dependency[1])
         end
-        libs = get_libs_path(conf)
+        libs = get_dependencies_path(conf)
         import_template(@makefile_bin_template_path, "Makefile", {:name => conf["name"], :src => "*", :libs => libs[:path].join(" "), :cc_libs => libs[:cc_path].join(" "), :headers_path => libs[:headers_path].join(" ")})
     end
+end
+
+def upgrade_dependency(name)
+    begin
+        g = Git.open("./#{@dependencies_directory}/#{name}")
+        g.pull
+        `make -C "./#{@dependencies_directory}/#{name}" fclean`
+    rescue
+        warn_msg("#{name} is not a git repository")
+    end
+end
+
+def upgrade_sub_dependencies(name, url)
+    begin
+        conf = TOML.load_file("./#{@dependencies_directory}/#{name}/config.toml")
+    rescue
+        error_msg("#{name}: no config.toml found")
+        return
+    end
+    
+    if conf["dependencies"]
+        conf["dependencies"].each do |dependency|
+            upgrade_dependency(dependency[0])
+            upgrade_sub_dependencies(dependency[0], dependency[1])
+        end
+    end
+
 end
 
 def upgrade_dependencies()
@@ -119,13 +178,8 @@ def upgrade_dependencies()
 
     if conf["dependencies"] && !conf["is_lib"]
         conf["dependencies"].each do |dependency|
-            begin
-                g = Git.open("./#{@dependencies_directory}/#{dependency[0]}")
-                g.pull
-                `make -C "./#{@dependencies_directory}/#{dependency[0]}" fclean`
-            rescue
-                warn_msg("#{dependency[0]} is not a git repository")
-            end
+            upgrade_dependency(dependency[0])
+            upgrade_sub_dependencies(dependency[0], dependency[1])
         end
     end
 end
@@ -198,7 +252,7 @@ header_name = "/header.h.template"
 @header_template_path = template_path + header_name
 
 # dependencies directory name
-@dependencies_directory = "dep/"
+@dependencies_directory = "dep"
 begin
     options = parse()
 rescue Exception => e
@@ -215,6 +269,11 @@ unless !options[:init_name] || options[:init_name].empty?
     else
         error_msg("a config.toml file exist in this directory, remove it before create a new project")
     end
+end
+
+unless File.exist? File.expand_path "./config.toml"
+    error_msg("no config.toml found")
+    exit 1
 end
 
 unless !options[:install]
