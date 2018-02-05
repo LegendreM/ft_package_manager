@@ -31,7 +31,7 @@ $(OBJDIR):
 
 clean:
 	@rm -rf $(OBJ) $(OBJDIR)
-	@(echo "\033[32mit is clean\033[00m")
+	@(echo "\033[32mlib cleaned\033[00m")
 
 fclean: clean
 	@rm -rf $(NAME)
