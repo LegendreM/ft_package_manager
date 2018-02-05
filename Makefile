@@ -6,7 +6,7 @@ E_PWD = ${PWD}
 
 install:
 	@(echo "install")
-	@bundle install
+	@bundle install 1> /dev/null
 	@ln -s $(SRC) $(NAME)
 	@chmod 755 $(NAME)
 	@(echo "add '\033[32mexport PM_PATH=$(E_PWD)\033[00m' in your zshrc or bash_profile")
